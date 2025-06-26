@@ -1,0 +1,471 @@
+<!-- Updated version with topic management -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>English Vocabulary Learning</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600&display=swap" rel="stylesheet">
+
+</head>
+
+
+<body>
+    <header>
+        <h1>Learn English Vocabulary</h1>
+        <button id="toggle-theme"
+            style="position: absolute; top: 1rem; right: 1rem; background: none; border: none; font-size: 1.5rem; cursor: pointer;">🌙</button>
+        <nav>
+            <button onclick="showSection('learn-section')"><i class="fa-solid fa-book-open"></i> Học từ</button>
+            <button onclick="showSection('quiz-select')"><i class="fa-solid fa-pen-to-square"></i> Kiểm tra</button>
+            <button onclick="showSection('add-section')"><i class="fa-solid fa-plus"></i> Thêm từ</button>
+            <button onclick="showSection('topic')"><i class="fa-solid fa-folder-open"></i> Chủ đề</button>
+        </nav>
+    </header>
+
+    <main>
+        <section id="learn-section" class="section"></section>
+
+        <section id="quiz-select" class="section" style="display:none">
+            <div class="quiz-card">
+                <h2>Chọn chủ đề kiểm tra</h2>
+                <div class="quiz-select" id="topic-buttons"></div>
+            </div>
+        </section>
+
+        <section id="quiz-section" class="section" style="display:none">
+            <div class="quiz-card">
+                <h2 id="quiz-word">Word</h2>
+                <input type="text" id="user-answer" placeholder="Nhập nghĩa tiếng Việt..." />
+                <p id="timer"></p>
+                <button onclick="checkAnswer()">Kiểm tra</button>
+                <p id="quiz-result"></p>
+                <p id="quiz-stats"></p>
+                <button onclick="startQuiz(currentTopic)">🔁 Từ khác</button>
+            </div>
+        </section>
+
+        <section id="add-section" class="section" style="display:none">
+            <div class="quiz-card">
+                <h2>Thêm từ mới</h2>
+                <input type="text" id="new-word" placeholder="Từ tiếng Anh"
+                    style="ime-mode: disabled; font-family: Consolas, monospace;" inputmode="latin"
+                    autocomplete="off" />
+
+                <input type="text" id="new-meaning" placeholder="Nghĩa tiếng Việt" />
+                <input type="text" id="new-pronunciation" placeholder="Phiên âm (hoặc để trống)" />
+                <select id="new-topic"></select>
+                <button onclick="addWord()">Thêm vào danh sách</button>
+                <p id="add-result"></p>
+            </div>
+        </section>
+
+        <section id="topic" class="section" style="display:none">
+            <div class="quiz-card">
+                <h2>📂 Quản lý Chủ đề</h2>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <input type="text" id="new-topic-name" placeholder="Tên chủ đề mới" style="flex: 1;" />
+                    <button onclick="addTopic()">➕ Thêm chủ đề</button>
+                </div>
+                <ul id="topic-list" style="margin-top: 1rem;"></ul>
+                <div id="topic-words" style="margin-top: 2rem;"></div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <p>© 2025 English Learning Site by Tune</p>
+    </footer>
+
+    <script>
+        let words = JSON.parse(localStorage.getItem('words') || '[]');
+        let topics = JSON.parse(localStorage.getItem('topics') || '["Tất cả", "Từ mới"]');
+        let currentWord = null;
+        let currentTopic = 'Tất cả';
+        let correctCount = 0;
+        let wrongCount = 0;
+        let timer = null;
+        let timeLeft = 10;
+        let quizPool = [...words];
+
+        function saveData() {
+            localStorage.setItem('words', JSON.stringify(words));
+            localStorage.setItem('topics', JSON.stringify(topics));
+        }
+        const wordInput = document.getElementById('new-word');
+
+        // Hàm loại bỏ dấu tiếng Việt
+        function removeVietnamese(str) {
+            return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                .replace(/đ/g, "d").replace(/Đ/g, "D")
+                .replace(/[^a-zA-Z -]/g, ''); // Loại bỏ ký tự không hợp lệ
+        }
+
+        // Xử lý khi nhập
+        wordInput.addEventListener('input', () => {
+            const cleaned = removeVietnamese(wordInput.value);
+            if (wordInput.value !== cleaned) {
+                wordInput.value = cleaned;
+            }
+        });
+
+        // Xử lý dán văn bản có dấu
+        wordInput.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const pasted = (e.clipboardData || window.clipboardData).getData('text');
+            const cleaned = removeVietnamese(pasted);
+            const cursorPos = wordInput.selectionStart;
+            const textBefore = wordInput.value.slice(0, cursorPos);
+            const textAfter = wordInput.value.slice(wordInput.selectionEnd);
+            wordInput.value = textBefore + cleaned + textAfter;
+            wordInput.setSelectionRange(cursorPos + cleaned.length, cursorPos + cleaned.length);
+        });
+
+
+
+
+        function speak(text) {
+            const synth = window.speechSynthesis;
+            const utter = new SpeechSynthesisUtterance(text);
+
+            // Lưu danh sách giọng toàn cục để tái sử dụng
+            if (!window.availableVoices || window.availableVoices.length === 0) {
+                window.availableVoices = synth.getVoices();
+            }
+
+            const voices = window.availableVoices;
+
+            // Ưu tiên giọng Google US English
+            let selectedVoice = voices.find(v =>
+                v.name.toLowerCase().includes("google") && v.lang === "en-US"
+            );
+
+            // Nếu không có, dùng giọng tiếng Anh bất kỳ
+            if (!selectedVoice) {
+                selectedVoice = voices.find(v => v.lang.startsWith("en"));
+            }
+
+            if (selectedVoice) {
+                utter.voice = selectedVoice;
+            }
+
+            // Cài đặt rõ ràng
+            utter.lang = "en-US";
+            utter.rate = 0.85;
+            utter.pitch = 1.0;
+            utter.volume = 1.0;
+
+            synth.cancel(); // Ngắt nếu đang đọc cũ
+            synth.speak(utter);
+        }
+
+
+
+        function showSection(id) {
+            ["learn-section", "quiz-select", "quiz-section", "add-section", "topic"].forEach(sec => {
+                document.getElementById(sec).style.display = (id === sec) ? 'block' : 'none';
+            });
+            if (id === 'learn-section') renderVocabulary();
+            if (id === 'quiz-select') renderTopicButtons();
+            if (id === 'topic') {
+                renderTopicList();
+                renderTopicWordList();
+            }
+            if (id === 'add-section') renderTopicOptions();
+        }
+
+        function renderVocabulary() {
+            const section = document.getElementById('learn-section');
+            section.innerHTML = `
+                <div style="margin-bottom: 1rem;">
+                    <label for="learn-topic-select"><strong>📂 Lọc theo chủ đề:</strong></label>
+                    <select id="learn-topic-select" onchange="renderVocabularyByTopic(this.value)">
+                        ${topics.map(t => `<option value="${t}">${t}</option>`).join('')}
+                    </select>
+                </div>
+                <div id="learn-cards"></div>
+            `;
+            renderVocabularyByTopic('Tất cả');
+        }
+
+        const themeToggleBtn = document.getElementById('toggle-theme');
+
+        // Hàm bật/tắt chế độ
+        function toggleTheme() {
+            const isDark = document.body.classList.toggle('dark-mode');
+            document.documentElement.classList.toggle('dark-mode', isDark); // Áp dụng cho html
+
+            localStorage.setItem('darkMode', isDark ? 'true' : 'false');
+            updateThemeIcon(isDark);
+        }
+
+        // Cập nhật icon 🌙/🌞
+        function updateThemeIcon(isDark) {
+            themeToggleBtn.textContent = isDark ? '🌞' : '🌙';
+        }
+
+        // Khi trang tải xong, kiểm tra localStorage
+        document.addEventListener('DOMContentLoaded', () => {
+            const darkMode = localStorage.getItem('darkMode') === 'true';
+            if (darkMode) {
+                document.body.classList.add('dark-mode');
+                document.documentElement.classList.add('dark-mode'); // new
+            }
+            updateThemeIcon(darkMode);
+        });
+
+        themeToggleBtn.addEventListener('click', toggleTheme);
+
+        function renderVocabularyByTopic(topic) {
+            const cardContainer = document.getElementById('learn-cards');
+            cardContainer.innerHTML = '';
+
+            const filteredWords = topic === 'Tất cả' ? words : words.filter(w => w.topic === topic);
+
+            if (filteredWords.length === 0) {
+                cardContainer.innerHTML = `<p>📭 Không có từ nào trong chủ đề "${topic}"</p>`;
+                return;
+            }
+
+            filteredWords.forEach(w => {
+                const card = document.createElement('div');
+                card.className = 'vocab-card';
+                card.innerHTML = `
+            <h2>${w.word}</h2>
+            <p><strong>Meaning:</strong> ${w.meaning}</p>
+            <p><strong>Pronunciation:</strong> <em>${w.pronunciation || 'Không rõ'}</em></p>
+            <p><strong>Chủ đề:</strong> ${w.topic || 'Không có'}</p>
+            <button onclick="speak('${w.word}')">🔊 Pronounce</button>
+        `;
+                cardContainer.appendChild(card);
+            });
+        }
+
+        function renderTopicButtons() {
+            const container = document.getElementById('topic-buttons');
+            container.innerHTML = '';
+            topics.forEach(t => {
+                const btn = document.createElement('button');
+                btn.textContent = t;
+                btn.onclick = () => startQuiz(t);
+                container.appendChild(btn);
+            });
+        }
+
+        function renderTopicOptions() {
+            const select = document.getElementById('new-topic');
+            select.innerHTML = topics.map(t => `<option value="${t}">${t}</option>`).join('');
+        }
+
+        function renderTopicList() {
+            const list = document.getElementById('topic-list');
+            list.innerHTML = '';
+            topics.forEach((t, i) => {
+                if (t === "Tất cả" || t === "Từ mới") return;
+
+                const li = document.createElement('li');
+                li.style.marginBottom = "0.5rem";
+                li.innerHTML = `
+                    <strong>${t}</strong>
+                    <button onclick="showTopicWords('${t}')">👁️ Xem</button>
+                    <button onclick="deleteTopic(${i})">❌ Xoá</button>
+                    `;
+                list.appendChild(li);
+            });
+        }
+
+        function showTopicWords(topic) {
+            const container = document.getElementById('topic-words');
+            const topicWords = words.filter(w => w.topic === topic);
+
+            if (topicWords.length === 0) {
+                container.innerHTML = `<p>📭 Không có từ nào trong chủ đề "<strong>${topic}</strong>"</p>`;
+                return;
+            }
+
+            container.innerHTML = `
+            <h3>📋 Danh sách từ của chủ đề: "${topic}"</h3>
+            <ul>
+            ${topicWords.map((w, index) => `
+                <li style="margin-bottom: 0.5rem;">
+                <strong>${w.word}</strong> - ${w.meaning} 
+                <em style="color:gray;">[${w.pronunciation || 'Không rõ'}]</em>
+                <button onclick="editWord('${w.word}')">✏️ Sửa</button>
+                <button onclick="deleteWord('${w.word}')">🗑️ Xoá</button>
+                </li>
+            `).join('')}
+            </ul>
+        `;
+        }
+
+
+        function editWord(word) {
+            const w = words.find(w => w.word === word);
+            if (!w) return;
+
+            const newMeaning = prompt(`Sửa nghĩa của từ "${word}":`, w.meaning);
+            const newPronun = prompt(`Sửa phiên âm của từ "${word}":`, w.pronunciation || '');
+
+            if (newMeaning !== null) w.meaning = newMeaning.trim();
+            if (newPronun !== null) w.pronunciation = newPronun.trim();
+
+            saveData();
+            renderVocabulary();
+            showTopicWords(w.topic);
+        }
+
+
+        function deleteWord(word) {
+            if (confirm(`Bạn có chắc muốn xoá từ "${word}" không?`)) {
+                words = words.filter(w => w.word !== word);
+                saveData();
+                renderVocabulary();
+                renderTopicList();
+                showTopicWords(currentTopic); // cập nhật lại danh sách đang xem
+            }
+        }
+
+
+
+
+        function addTopic() {
+            const newTopic = document.getElementById('new-topic-name').value.trim();
+            if (newTopic && !topics.includes(newTopic)) {
+                topics.push(newTopic);
+                saveData();
+                document.getElementById('new-topic-name').value = '';
+                renderTopicList();
+                renderTopicOptions();
+            }
+        }
+
+        function deleteTopic(index) {
+            topics.splice(index, 1);
+            saveData();
+            renderTopicList();
+            renderTopicOptions();
+        }
+
+        function startQuiz(topic) {
+            currentTopic = topic;
+            showSection('quiz-section');
+            quizPool = topic === 'Tất cả' ? [...words] : (topic === 'Từ mới' ? words.slice(-5) : words.filter(w => w.topic === topic));
+            loadNextWord();
+        }
+
+        function loadNextWord() {
+            currentWord = quizPool[Math.floor(Math.random() * quizPool.length)];
+            document.getElementById('quiz-word').textContent = currentWord.word;
+            document.getElementById('user-answer').value = '';
+            document.getElementById('quiz-result').textContent = '';
+            document.getElementById('quiz-stats').textContent = `✅ Đúng: ${correctCount} | ❌ Sai: ${wrongCount}`;
+            startTimer();
+        }
+
+        function startTimer() {
+            timeLeft = 10;
+            document.getElementById('timer').textContent = `⏳ Thời gian: ${timeLeft}s`;
+            clearInterval(timer);
+            timer = setInterval(() => {
+                timeLeft--;
+                document.getElementById('timer').textContent = `⏳ Thời gian: ${timeLeft}s`;
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    checkAnswer(true);
+                }
+            }, 1000);
+        }
+
+        function checkAnswer(isTimeout = false) {
+            clearInterval(timer);
+            const userInput = document.getElementById('user-answer').value.trim().toLowerCase();
+            const correct = currentWord.meaning.toLowerCase();
+            const result = document.getElementById('quiz-result');
+            if (!isTimeout && (correct.includes(userInput) || userInput.includes(correct))) {
+                result.textContent = `✅ Chính xác! Nghĩa của "${currentWord.word}" là: ${currentWord.meaning}`;
+                result.style.color = "green";
+                correctCount++;
+            } else {
+                result.textContent = `❌ Sai. Đáp án đúng là: ${currentWord.meaning}`;
+                result.style.color = "red";
+                wrongCount++;
+            }
+            document.getElementById('quiz-stats').textContent = `✅ Đúng: ${correctCount} | ❌ Sai: ${wrongCount}`;
+            setTimeout(() => loadNextWord(), 3000);
+        }
+
+        async function fetchPronunciation(word) {
+            try {
+                const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+                const data = await res.json();
+                return data[0].phonetics.find(p => p.text)?.text || '';
+            } catch {
+                return '';
+            }
+        }
+
+        async function addWord() {
+            const word = document.getElementById('new-word').value.trim();
+            const meaning = document.getElementById('new-meaning').value.trim();
+            const topic = document.getElementById('new-topic').value;
+            let pronunciation = document.getElementById('new-pronunciation').value.trim();
+            const result = document.getElementById('add-result');
+
+            if (!word || !meaning) {
+                result.textContent = "❌ Vui lòng nhập từ và nghĩa.";
+                return;
+            }
+            if (!pronunciation) pronunciation = await fetchPronunciation(word);
+
+            words.push({ word, meaning, pronunciation, topic });
+            saveData();
+            renderVocabulary();
+            result.textContent = `✅ Đã thêm từ "${word}" với phiên âm: ${pronunciation || 'Không rõ'}`;
+            document.getElementById('new-word').value = '';
+            document.getElementById('new-meaning').value = '';
+            document.getElementById('new-pronunciation').value = '';
+        }
+
+        document.getElementById('user-answer').addEventListener('keypress', e => {
+            if (e.key === 'Enter') checkAnswer();
+        });
+
+        // Tự động nói thử khi danh sách giọng sẵn sàng
+        window.speechSynthesis.onvoiceschanged = () => {
+            // Lưu danh sách vào biến toàn cục
+            window.availableVoices = window.speechSynthesis.getVoices();
+
+            console.log("✅ Voices loaded:");
+            window.availableVoices.forEach(v => console.log(`${v.name} (${v.lang})`));
+
+            // Có thể test thử:
+            speak("Voice ready for English learning");
+        };
+
+        // Nhấn Enter ở vùng thêm từ mới sẽ thêm từ
+        ['new-word', 'new-meaning', 'new-pronunciation'].forEach(id => {
+            const input = document.getElementById(id);
+            input.addEventListener('keypress', e => {
+                if (e.key === 'Enter') {
+                    addWord();
+                }
+            });
+        });
+
+        // Nhấn Enter khi nhập tên chủ đề mới sẽ thêm chủ đề
+        document.getElementById('new-topic-name').addEventListener('keypress', e => {
+            if (e.key === 'Enter') {
+                addTopic();
+            }
+        });
+
+        renderVocabulary();
+    </script>
+</body>
+
+</html>
